@@ -26,8 +26,8 @@ type Handler struct {
 
 // AuthPFAnchorResponse represents all rules with server time for client-side calculations
 type AuthPFAnchorResponse struct {
-	Anchors    authpf.AnchorsDB `json:"anchors"`
-	ServerTime time.Time        `json:"server_time"`
+	Anchors    map[string]*authpf.AuthPFAnchor `json:"anchors"`
+	ServerTime time.Time                       `json:"server_time"`
 }
 
 func New(db *authpf.AnchorsDB, lock *sync.Mutex, logger zerolog.Logger, config *config.ConfigFile) (*Handler, error) {
@@ -128,8 +128,16 @@ func (h *Handler) HandleGetActivate(c *echo.Context) error {
 		return err
 	}
 
+	// 	anchors := h.db.Snapshot()
+	//
+	//    response := &AuthPFAnchorResponse{
+	//       Anchors:    map[string]*authpf.AuthPFAnchor{reqUser: anchors[reqUser]},
+	//       ServerTime: time.Now().UTC(),
+	//    }
+	anchor := h.db.Get(reqUser)
+
 	response := &AuthPFAnchorResponse{
-		Anchors:    map[string]*authpf.AuthPFAnchor{reqUser: (*h.db)[reqUser]},
+		Anchors:    map[string]*authpf.AuthPFAnchor{reqUser: anchor},
 		ServerTime: time.Now().UTC(),
 	}
 	return c.JSON(http.StatusOK, response)
@@ -153,7 +161,7 @@ func (h *Handler) HandleGetAllActivePFAnchors(c *echo.Context) error {
 	}
 
 	response := &AuthPFAnchorResponse{
-		Anchors:    *h.db,
+		Anchors:    h.db.GetAll(),
 		ServerTime: time.Now().UTC(),
 	}
 	return c.JSON(http.StatusOK, response)

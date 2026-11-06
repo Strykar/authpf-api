@@ -94,8 +94,8 @@ func TestAnchorsDB_Add(t *testing.T) {
 
 	db.Add(anchor)
 
-	assert.Equal(t, 1, len(*db))
-	assert.Equal(t, anchor, (*db)["testuser"])
+	assert.Equal(t, 1, len(db.data))
+	assert.Equal(t, anchor, db.data["testuser"])
 }
 
 // TestAnchorsDB_Remove_Success tests removing an existing anchor
@@ -108,12 +108,12 @@ func TestAnchorsDB_Remove_Success(t *testing.T) {
 	}
 
 	db.Add(anchor)
-	assert.Equal(t, 1, len(*db))
+	assert.Equal(t, 1, len(db.data))
 
 	err := db.Remove("testuser")
 
 	assert.NoError(t, err)
-	assert.Equal(t, 0, len(*db))
+	assert.Equal(t, 0, len(db.data))
 }
 
 // TestAnchorsDB_Remove_NotFound tests removing a non-existent anchor
@@ -164,7 +164,7 @@ func TestAnchorsDB_MultipleAnchors(t *testing.T) {
 		db.Add(anchor)
 	}
 
-	assert.Equal(t, 3, len(*db))
+	assert.Equal(t, 3, len(db.data))
 
 	for _, anchor := range anchors {
 		assert.True(t, db.IsActivated(anchor.Username))
@@ -172,7 +172,7 @@ func TestAnchorsDB_MultipleAnchors(t *testing.T) {
 
 	err := db.Remove("user2")
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(*db))
+	assert.Equal(t, 2, len(db.data))
 	assert.False(t, db.IsActivated("user2"))
 	assert.True(t, db.IsActivated("user1"))
 	assert.True(t, db.IsActivated("user3"))
@@ -182,8 +182,8 @@ func TestAnchorsDB_MultipleAnchors(t *testing.T) {
 func TestAnchorsDB_New(t *testing.T) {
 	db := New()
 
-	assert.NotNil(t, db)
-	assert.Equal(t, 0, len(*db))
+	assert.NotNil(t, db.data)
+	assert.Equal(t, 0, len(db.data))
 }
 
 // TestAuthPFAnchor_Structure tests the AuthPFAnchor struct fields
@@ -203,4 +203,67 @@ func TestAuthPFAnchor_Structure(t *testing.T) {
 	assert.Equal(t, "192.168.1.1", anchor.UserIP)
 	assert.Equal(t, 1000, anchor.UserID)
 	assert.Equal(t, expiresAt, anchor.ExpiresAt)
+}
+
+func TestAnchorsDBGetAll(t *testing.T) {
+	first := &AuthPFAnchor{Username: "first"}
+	second := &AuthPFAnchor{Username: "second"}
+
+	db := &AnchorsDB{
+		data: map[string]*AuthPFAnchor{
+			"first":  first,
+			"second": second,
+		},
+	}
+
+	got := db.GetAll()
+
+	if len(got) != 2 {
+		t.Fatalf("GetAll() returned %d entries, want 2", len(got))
+	}
+	if got["first"] == first || *got["first"] != *first {
+		t.Errorf(`GetAll()["first"] = %v, want an equal but independent copy of %v`, got["first"], first)
+	}
+	if got["second"] == second || *got["second"] != *second {
+		t.Errorf(`GetAll()["second"] = %v, want an equal but independent copy of %v`, got["second"], second)
+	}
+
+	// Mutating either returned layer must not affect the database.
+	delete(got, "first")
+	got["second"].Username = "changed"
+	fresh := db.GetAll()
+	if _, ok := fresh["first"]; !ok {
+		t.Error("deleting from the returned map changed the internal map")
+	}
+	if fresh["second"].Username != "second" {
+		t.Error("mutating a returned anchor changed the internal anchor")
+	}
+}
+
+func TestAnchorsDBFlushClearsInPlace(t *testing.T) {
+	db := New()
+	db.Add(&AuthPFAnchor{Username: "alice"})
+
+	// Keep a view of the current map to detect replacing it instead of clearing it.
+	original := db.data
+	db.Flush()
+
+	if len(original) != 0 {
+		t.Fatal("Flush left entries in the original map")
+	}
+	if db.Len() != 0 {
+		t.Fatalf("Flush left %d entries in the DB", db.Len())
+	}
+}
+
+func TestAnchorsDBAddCopiesAnchor(t *testing.T) {
+	db := New()
+	anchor := &AuthPFAnchor{Username: "alice", Timeout: "1h"}
+
+	db.Add(anchor)
+	anchor.Timeout = "0s"
+
+	if got := db.Get("alice").Timeout; got != "1h" {
+		t.Fatalf("stored timeout = %q, want %q", got, "1h")
+	}
 }
